@@ -1,0 +1,363 @@
+
+%% Fiber modes with a thin layer of gold
+clear all
+close all
+clc
+tic
+%% Colormaps
+re=[1 0 0];
+wi=[1 1 1];
+bl=[0 0 1];
+gr=[0.466 0.674 0.188];
+or=[0.929 0.694 0.125];
+
+c1=zeros(64,3); c2=zeros(64,3);
+for i=1:3
+    c1(:,i)=linspace(bl(i),wi(i),64);
+    c2(:,i)=linspace(wi(i),re(i),64);
+end
+Map1=[c1(1:end-1,:);c2];
+
+c1=zeros(64,3); c2=zeros(64,3);
+for i=1:3
+    c1(:,i)=linspace(wi(i),or(i),64);
+    c2(:,i)=linspace(or(i),gr(i),64);
+end
+Map2=[c1(1:end-1,:);c2];
+
+% startup_mtex
+options = optimset('UseParallel','always');
+
+
+c=299792458; eps_0=8.8541878176*1e-12; miu=1/(eps_0*c^2); eta0=sqrt(miu/(eps_0));
+hp=6.626068e-34;
+hb=hp/(2*pi);
+ev=1.60217646e-19;
+
+
+q=1.60217646e-19;
+m0=9.10938188e-31;
+
+% U_TEM=30*1e3*ev;
+vel=0.3331*c; % c*sqrt(1-(m0*c^2/(U_TEM+m0*c^2))^2);
+
+%% wavelength range
+E=1:0.02:3;
+la=hp*c./(E*ev);
+w=E/hb;
+k0=2*pi./la;
+
+%% Radii
+r1=400e-9;
+r2=460e-9;
+
+%% azimuthal degree of freedom
+n_m=1;
+
+%% Au
+XX=xlsread('eps_Au',1,'A1:A175');
+la_m=XX(:,1);
+n_rm=XX(:,2);
+k_im=XX(:,3);
+
+% la_m=xlsread('eps_Au',1,'A1:A175');
+% n_rm=xlsread('eps_Au',1,'B1:B175');
+% k_im=xlsread('eps_Au',1,'C1:C175');
+
+epsr_rm=real((n_rm-1i*k_im).^2);
+epsr_im=imag((n_rm-1i*k_im).^2);
+
+ft_ = fittype('splineinterp');
+
+% Fit this model using new data
+cf_1 = fit(la_m,epsr_rm,ft_);
+cf_2 = fit(la_m,epsr_im,ft_);
+
+epsr_Au=cf_1(la*1e9)+1i*cf_2(la*1e9);
+epsr1=epsr_Au;
+
+
+%% SiO2
+% % la_m=xlsread('n_Glass',1,'A1:A162');
+% % n_rm=xlsread('n_Glass',1,'B1:B162');
+% % k_im=xlsread('n_Glass',1,'C1:C162');
+% XX=xlsread('n_Glass',1,'A1:A175');
+% la_m=XX(:,1);
+% n_rm=XX(:,2);
+% k_im=XX(:,3);
+% 
+% epsr_rm=real((n_rm-1i*k_im).^2);
+% epsr_im=imag((n_rm-1i*k_im).^2);
+% 
+% ft_ = fittype('splineinterp');
+% 
+% % Fit this model using new data
+% cf_1 = fit(la_m,epsr_rm,ft_);
+% cf_2 = fit(la_m,epsr_im,ft_);
+% 
+% epsr_SiO2=cf_1(la*1e9)+1i*cf_2(la*1e9);
+epsr2=1.62^2*ones(1,length(la));
+
+epsr3=ones(1,length(la));
+
+%% Search functions
+            
+beta1=-1e6:4e4:3e7;
+alpha1=-12e5:4e4:3e7;
+
+kk=kron(beta1.',ones(1,length(alpha1)))-1i*kron(alpha1,ones(length(beta1),1));
+
+betar_=zeros(length(la),1);
+
+sc_=1;
+
+Jprime=@(n_m,x) -besselj(n_m+1,x)+n_m./x.*besselj(n_m,x);
+Yprime=@(n_m,x) -bessely(n_m+1,x)+n_m./x.*bessely(n_m,x);
+Kprime=@(n_m,x) -besselk(n_m+1,x)+n_m./x.*besselk(n_m,x);
+Iprime=@(n_m,x) -besseli(n_m+1,x)+n_m./x.*besseli(n_m,x);
+
+for ll=1:length(la)
+    disp(ll)
+    
+    k0=2*pi/la(ll);
+    w=k0*c;
+    
+    K1=sqrt(-epsr1(ll)*k0.^2+kk.^2);
+    K2=sqrt(-epsr2(ll)*k0.^2+kk.^2);
+    K3=sqrt(-epsr3(ll)*k0.^2+kk.^2);
+
+    A11=(K2.^2-K1.^2)./(1i*w*eps_0*epsr2(ll)).*n_m.*kk./r1.*besseli(n_m,K2.*r1).*besseli(n_m,K1.*r1);
+    A12=(K2.^2-K1.^2)./(1i*w*eps_0*epsr2(ll)).*n_m.*kk./r1.*besselk(n_m,K2.*r1).*besseli(n_m,K1.*r1);
+    A13=K2.*K1.*(K2.*Iprime(n_m,K1*r1).*besseli(n_m,K2.*r1)-K1.*Iprime(n_m,K2.*r1).*besseli(n_m,K1.*r1));
+    A14=K2.*K1.*(K2.*Iprime(n_m,K1*r1).*besselk(n_m,K2.*r1)-K1.*Kprime(n_m,K2.*r1).*besseli(n_m,K1.*r1));
+
+    A21=(K2.^2-K3.^2)./(1i*w*eps_0*epsr2(ll)).*n_m.*kk./r2.*besseli(n_m,K2.*r2).*besselk(n_m,K3.*r2);
+    A22=(K2.^2-K3.^2)./(1i*w*eps_0*epsr2(ll)).*n_m.*kk./r2.*besselk(n_m,K2.*r2).*besselk(n_m,K3.*r2);
+    A23=K2.*K3.*(K2.*besseli(n_m,K2.*r2).*Kprime(n_m,K3.*r2)-K3.*Iprime(n_m,K2.*r2).*besselk(n_m,K3.*r2));
+    A24=K2.*K3.*(K2.*besselk(n_m,K2.*r2).*Kprime(n_m,K3.*r2)-K3.*Kprime(n_m,K2.*r2).*besselk(n_m,K3.*r2));
+
+    A31=K1.*K2.*(-epsr1(ll)./epsr2(ll).*K2.*Iprime(n_m,K1.*r1).*besseli(n_m,K2.*r1)+K1.*Iprime(n_m,K2.*r1).*besseli(n_m,K1.*r1));
+    A32=K1.*K2.*(-epsr1(ll)./epsr2(ll).*K2.*Iprime(n_m,K1.*r1).*besselk(n_m,K2.*r1)+K1.*Kprime(n_m,K2.*r1).*besseli(n_m,K1.*r1));
+    A33=(K2.^2-K1.^2).*n_m.*kk./(1i*w*miu*r1).*besseli(n_m,K2.*r1).*besseli(n_m,K1*r1);
+    A34=(K2.^2-K1.^2).*n_m.*kk./(1i*w*miu*r1).*besselk(n_m,K2.*r1).*besseli(n_m,K1*r1);
+
+    A41=K2.*K3.*(-epsr3(ll)./epsr2(ll).*K2.*Kprime(n_m,K3.*r2).*besseli(n_m,K2.*r2)+K3.*Iprime(n_m,K2.*r2).*besselk(n_m,K3.*r2));
+    A42=K2.*K3.*(-epsr3(ll)./epsr2(ll).*K2.*Kprime(n_m,K3.*r2).*besselk(n_m,K2.*r2)+K3.*Kprime(n_m,K2.*r2).*besselk(n_m,K3.*r2));
+    A43=(K2.^2-K3.^2).*n_m.*kk./(1i*w*miu*r2).*besseli(n_m,K2.*r2).*besselk(n_m,K3*r2);
+    A44=(K2.^2-K3.^2).*n_m.*kk./(1i*w*miu*r2).*besselk(n_m,K2.*r2).*besselk(n_m,K3*r2);
+
+    Det_ =...
+    abs(A11.*A22.*A33.*A44 - A11.*A22.*A34.*A43 - A11.*A23.*A32.*A44 + A11.*A23.*A34.*A42 + A11.*A24.*A32.*A43 - A11.*A24.*A33.*A42 - A12.*A21.*A33.*A44 + A12.*A21.*A34.*A43 + A12.*A23.*A31.*A44 - A12.*A23.*A34.*A41 - A12.*A24.*A31.*A43 + A12.*A24.*A33.*A41 + A13.*A21.*A32.*A44 - A13.*A21.*A34.*A42 - A13.*A22.*A31.*A44 + A13.*A22.*A34.*A41 + A13.*A24.*A31.*A42 - A13.*A24.*A32.*A41 - A14.*A21.*A32.*A43 + A14.*A21.*A33.*A42 + A14.*A22.*A31.*A43 - A14.*A22.*A33.*A41 - A14.*A23.*A31.*A42 + A14.*A23.*A32.*A41);
+
+    figure(1); imagesc(beta1.*1e-6,alpha1*1e-6,log(abs(Det_.'))); shading flat; axis tight
+    set(gcf,'Renderer','ZBuffer')
+    % caxis([0,0.1*m])
+    xlim([-0.1,30]); ylim([-0.1,30]);
+
+    N_B_=0;
+    for nn=2:length(alpha1)-1
+        for mm=2:length(beta1)-1
+            %% TMx
+            %%even modes
+            F1=Det_(mm,nn+1)-Det_(mm,nn);
+            F2=Det_(mm,nn-1)-Det_(mm,nn);
+
+            F3=Det_(mm+1,nn)-Det_(mm,nn);
+            F4=Det_(mm-1,nn)-Det_(mm,nn);
+
+            F5=Det_(mm-1,nn-1)-Det_(mm,nn);
+            F6=Det_(mm-1,nn+1)-Det_(mm,nn);
+
+            F7=Det_(mm+1,nn-1)-Det_(mm,nn);
+            F8=Det_(mm+1,nn+1)-Det_(mm,nn);
+            
+            if F1>=0 && F2>=0 && F3>=0 && F4>=0 && F5>=0 && F6>=0 && F7>=0 && F8>=0
+                    N_B_=N_B_+1;
+                    betar_(ll,N_B_)=beta1(mm)+1i*alpha1(nn);
+            end
+        end
+    end
+
+    figure(1); hold on; plot(real(betar_(ll,:)).*1e-6,imag(betar_(ll,:)).*1e-6,'ow','Markersize',8)
+    F_fy(ll)=getframe;
+    hold off;
+
+end
+
+figure(30); hold on; plot(real(betar_).'*1e-6,E,'.b')    
+figure(30); hold on; plot(2*pi./la*1e-6,E,'--k')    
+% figure(30); hold on; plot(sqrt(epsr1.').*2*pi./la*1e-6,E,'--g')    
+% figure(30); hold on; plot(sqrt(epsr2.').*2*pi./la*1e-6,E,'--g')    
+
+
+figure(31); hold on; plot(imag(betar_).'*1e-6,E,'.r')    
+
+    
+%%clear modes
+beta2_=betar_;
+[a,b]=find(beta2_==0);
+
+for n=1:length(a)
+     beta2_(a(n),b(n))=NaN+1i*NaN;
+end
+
+figure(310); hold on; plot(real(beta2_).'*1e-6,E,'o')
+figure(311); hold on; plot(imag(beta2_).'*1e-6,E,'o')
+figure(310); hold on; plot(2*pi./la*1e-6,E,'.--c')    
+figure(310); hold on; plot(1.62*2*pi./la*1e-6,E,'.--c')    
+    
+
+%%
+m1=1;
+
+B1=zeros(1,101);
+B_s=beta2_(m1,3);
+B1(m1)=B_s;
+
+for m=m1+1:101
+    [FF1(m),FF2(m)]=min(abs(beta2_(m,:)-B_s)); 
+    B_s=beta2_(m,FF2(m));
+    B1(m)=B_s;
+end
+
+ 
+figure(500); hold on; plot(real(B1)*1e-6,E,'-b')
+figure(500); hold on; plot(imag(B1)*1e-6,E,'--b')
+% 
+
+ 
+BETA_=[B1];
+
+[a,b]=find(BETA_==0);
+
+for n=1:length(a)
+     BETA_(a(n),b(n))=NaN+1i*NaN;
+end
+% figure(512); hold on; plot(real(BETA_y_e)*1e-6,E);
+% plot(2*pi./la*1e-6,E,'--');
+% figure(512); hold on; plot(imag(BETA_y_e)*1e-6,E);
+figure(512); hold on; plot(real(BETA_)*1e-6,E,'-','Color','k','LineWidth',2);
+plot(2*pi./la*1e-6,E,'-.k');
+plot(1.62.*2*pi./la*1e-6,E,'-.k');
+figure(512); hold on; plot(imag(BETA_)*1e-6,E,'--k');
+
+q=1.60217646e-19;
+m0=9.10938188e-31;
+
+U_TEM=18*1e3*ev;
+vel=c*sqrt(1-(m0*c^2/(U_TEM+m0*c^2))^2);
+
+w=E*ev/hb;
+r_=1.76e-6;
+p_=5.85e-6;
+m_=0;
+
+B_el=(w/vel*p_+2*m_*pi)./sqrt((2*pi*r_)^2+p_^2);
+
+figure(512); hold on; plot(B_el*1e-6,E,'-r')
+ylim([1,3])
+
+B1_=w/vel;
+B2_=w/c+2*pi/p_*35;
+
+figure(333); plot(B1_,E,'r')
+hold on; plot(B2_,E,'k')
+
+
+
+
+
+%% Field components
+ll=30;
+kk=(BETA_(4,ll));
+
+k0=2*pi/la(ll);
+w=k0*c;
+
+K1=sqrt(-epsr1(ll)*k0.^2+kk.^2);
+K2=sqrt(-epsr2(ll)*k0.^2+kk.^2);
+K3=sqrt(-epsr3(ll)*k0.^2+kk.^2);
+
+    A11=(K2.^2-K1.^2)./(1i*w*eps_0*epsr2(ll)).*n_m.*kk./r1.*besseli(n_m,K2.*r1).*besseli(n_m,K1.*r1);
+    A12=(K2.^2-K1.^2)./(1i*w*eps_0*epsr2(ll)).*n_m.*kk./r1.*besselk(n_m,K2.*r1).*besseli(n_m,K1.*r1);
+    A13=K2.*K1.*(K2.*Iprime(n_m,K1*r1).*besseli(n_m,K2.*r1)-K1.*Iprime(n_m,K2.*r1).*besseli(n_m,K1.*r1));
+    A14=K2.*K1.*(K2.*Iprime(n_m,K1*r1).*besselk(n_m,K2.*r1)-K1.*Kprime(n_m,K2.*r1).*besseli(n_m,K1.*r1));
+
+    A21=(K2.^2-K3.^2)./(1i*w*eps_0*epsr2(ll)).*n_m.*kk./r2.*besseli(n_m,K2.*r2).*besselk(n_m,K3.*r2);
+    A22=(K2.^2-K3.^2)./(1i*w*eps_0*epsr2(ll)).*n_m.*kk./r2.*besselk(n_m,K2.*r2).*besselk(n_m,K3.*r2);
+    A23=K2.*K3.*(K2.*besseli(n_m,K2.*r2).*Kprime(n_m,K3.*r2)-K3.*Iprime(n_m,K2.*r2).*besselk(n_m,K3.*r2));
+    A24=K2.*K3.*(K2.*besselk(n_m,K2.*r2).*Kprime(n_m,K3.*r2)-K3.*Kprime(n_m,K2.*r2).*besselk(n_m,K3.*r2));
+
+    A31=K1.*K2.*(-epsr1(ll)./epsr2(ll).*K2.*Iprime(n_m,K1.*r1).*besseli(n_m,K2.*r1)+K1.*Iprime(n_m,K2.*r1).*besseli(n_m,K1.*r1));
+    A32=K1.*K2.*(-epsr1(ll)./epsr2(ll).*K2.*Iprime(n_m,K1.*r1).*besselk(n_m,K2.*r1)+K1.*Kprime(n_m,K2.*r1).*besseli(n_m,K1.*r1));
+    A33=(K2.^2-K1.^2).*n_m.*kk./(1i*w*miu*r1).*besseli(n_m,K2.*r1).*besseli(n_m,K1*r1);
+    A34=(K2.^2-K1.^2).*n_m.*kk./(1i*w*miu*r1).*besselk(n_m,K2.*r1).*besseli(n_m,K1*r1);
+
+    A41=K2.*K3.*(-epsr3(ll)./epsr2(ll).*K2.*Kprime(n_m,K3.*r2).*besseli(n_m,K2.*r2)+K3.*Iprime(n_m,K2.*r2).*besselk(n_m,K3.*r2));
+    A42=K2.*K3.*(-epsr3(ll)./epsr2(ll).*K2.*Kprime(n_m,K3.*r2).*besselk(n_m,K2.*r2)+K3.*Kprime(n_m,K2.*r2).*besselk(n_m,K3.*r2));
+    A43=(K2.^2-K3.^2).*n_m.*kk./(1i*w*miu*r2).*besseli(n_m,K2.*r2).*besselk(n_m,K3*r2);
+    A44=(K2.^2-K3.^2).*n_m.*kk./(1i*w*miu*r2).*besselk(n_m,K2.*r2).*besselk(n_m,K3*r2);
+
+
+Mat_=[A12 A13 A14
+      A22 A23 A24
+      A32 A33 A34
+      A42 A43 A44];
+C2=1;
+Ans_=-Mat_\[A11 A21 A31 A41].';
+C3=Ans_(1);
+D2=Ans_(2);
+D3=Ans_(3);
+
+C1=epsr1(ll)./epsr2(ll).*K2.^2./K1.^2.*besseli(n_m,K2*r1)./besseli(n_m,K1*r1).*C2+...
+   epsr1(ll)./epsr2(ll).*K2.^2./K1.^2.*besselk(n_m,K2*r1)./besseli(n_m,K1*r1).*C3; 
+
+C4=epsr3(ll)./epsr2(ll).*K2.^2./K3.^2.*besseli(n_m,K2*r2)./besselk(n_m,K3*r2).*C2+...
+   epsr3(ll)./epsr2(ll).*K2.^2./K3.^2.*besselk(n_m,K2*r2)./besselk(n_m,K3*r2).*C3; 
+
+D1=K2.^2./K1.^2.*besseli(n_m,K2*r1)./besseli(n_m,K1*r1).*D2+...
+   K2.^2./K1.^2.*besselk(n_m,K2*r1)./besseli(n_m,K1*r1).*D3; 
+
+D4=K2.^2./K3.^2.*besseli(n_m,K2*r2)./besselk(n_m,K3*r2).*D2+...
+   K2.^2./K3.^2.*besselk(n_m,K2*r2)./besselk(n_m,K3*r2).*D3; 
+
+
+r_1_=0:0.01*r1:r1;
+r_2_=r1:0.02*(r2-r1):r2;
+r_3_=r2:0.02*r1:4*r2;
+
+phi_=0:pi/100:2*pi;
+
+[r_1,phi_1]=meshgrid(r_1_,phi_);
+[r_2,phi_2]=meshgrid(r_2_,phi_);
+[r_3,phi_3]=meshgrid(r_3_,phi_);
+
+E_z1=C1./(1i*w*eps_0*epsr1(ll)).*(epsr1(ll)*k0^2-kk.^2).*besseli(n_m,K1*r_1).*exp(1i*n_m*phi_1);
+E_z2=(epsr2(ll)*k0^2-kk.^2)./(1i*w*eps_0*epsr2(ll)).*(C2.*besseli(n_m,K2*r_2)+C3*besselk(n_m,K2*r_2)).*exp(1i*n_m*phi_2);
+E_z3=C4./(1i*w*eps_0*epsr3(ll)).*(epsr3(ll)*k0^2-kk.^2).*besselk(n_m,K3*r_3).*exp(1i*n_m*phi_3);
+
+H_z1=D1./(1i*w*miu).*(epsr1(ll)*k0^2-kk.^2).*besseli(n_m,K1*r_1).*exp(1i*n_m*phi_1);
+H_z2=(epsr2(ll)*k0^2-kk.^2)./(1i*w*miu).*(D2.*besseli(n_m,K2*r_2)+D3*besselk(n_m,K2*r_2)).*exp(1i*n_m*phi_2);
+H_z3=D4./(1i*w*miu).*(epsr3(ll)*k0^2-kk.^2).*besselk(n_m,K3*r_3).*exp(1i*n_m*phi_3);
+
+
+
+x1=r_1.*cos(phi_1);
+y1=r_1.*sin(phi_1);
+x2=r_2.*cos(phi_2);
+y2=r_2.*sin(phi_2);
+x3=r_3.*cos(phi_3);
+y3=r_3.*sin(phi_3);
+
+figure(12); pcolor(x1*1e9,y1*1e9,real(E_z1)); hold on; 
+pcolor(x2*1e9,y2*1e9,real(E_z2)); hold on; 
+pcolor(x3*1e9,y3*1e9,real(E_z3)); hold on; 
+shading interp; axis equal; axis tight
+
+figure(13); pcolor(x1*1e9,y1*1e9,real(H_z1)); hold on; 
+pcolor(x2*1e9,y2*1e9,real(H_z2)); hold on; 
+pcolor(x3*1e9,y3*1e9,real(H_z3)); hold on; 
+shading interp; axis equal; axis tight
+
+
+
